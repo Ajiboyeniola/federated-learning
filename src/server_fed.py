@@ -7,6 +7,8 @@ import os
 import sys
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression as _LR
+
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from preprocess import get_feature_schema
@@ -39,9 +41,19 @@ class FedAvgLR(FedAvg):
                 intercept_agg += weight * params[1].astype(np.float64)
 
         aggregated = ndarrays_to_parameters(
-            [coef_agg.astype(np.float32),
-             intercept_agg.astype(np.float32)]
+        [coef_agg.astype(np.float32),
+         intercept_agg.astype(np.float32)]
         )
+    
+        _lr = _LR(max_iter=1000, class_weight='balanced', random_state=42)
+        _lr.coef_          = coef_agg.astype(np.float64)
+        _lr.intercept_     = intercept_agg.astype(np.float64)
+        _lr.classes_       = np.array([0, 1])
+        _lr.n_features_in_ = int(coef_agg.shape[-1])
+        os.makedirs("../results", exist_ok=True)
+        with open("../results/federated_lr_final.pkl", "wb") as f:
+            pickle.dump(_lr, f)
+    
         return aggregated, {}
 
 
@@ -76,6 +88,13 @@ class FedForest(FedAvg):
             global_rf.estimators_  = all_estimators
             global_rf.n_estimators = len(all_estimators)
 
+            # ── ADD THESE 3 LINES ──────────────────────────────────────
+            os.makedirs("../results", exist_ok=True)
+            with open("../results/federated_rf_final.pkl", "wb") as f:
+                pickle.dump(global_rf, f)
+            # ───────────────────────────────────────────────────────────
+
+
             model_bytes = pickle.dumps(global_rf)
             arr         = np.frombuffer(model_bytes, dtype=np.uint8)
             return ndarrays_to_parameters([arr]), {}
@@ -83,13 +102,18 @@ class FedForest(FedAvg):
         elif self.model_type == "dt":
             best_params   = None
             best_accuracy = -1
-
+ 
             for _, fit_res in results:
                 acc = fit_res.metrics.get("accuracy", 0)
                 if acc > best_accuracy:
                     best_accuracy = acc
                     best_params   = parameters_to_ndarrays(fit_res.parameters)
-
+ 
+            _dt = pickle.loads(best_params[0].tobytes())
+            os.makedirs("../results", exist_ok=True)
+            with open("../results/federated_dt_final.pkl", "wb") as f:
+                pickle.dump(_dt, f)
+ 
             return ndarrays_to_parameters(best_params), {}
 
 

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import os
 import sys
+import xgboost as xgb
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from preprocess import get_feature_schema
@@ -24,6 +25,16 @@ def aggregate_eval_metrics(eval_res):
     return {"accuracy": acc, "auroc": auroc, "f1": f1,
             "precision": prec, "recall": rec}
 
+class FedXgbBaggingWithSave(FedXgbBagging):
+        """FedXgbBagging that saves the global model after every round."""
+        def aggregate_fit(self, server_round, results, failures):
+            aggregated, metrics = super().aggregate_fit(server_round, results, failures)
+            if aggregated is not None and aggregated.tensors:
+                bst = xgb.Booster()
+                bst.load_model(bytearray(aggregated.tensors[0]))
+                os.makedirs("../results", exist_ok=True)
+                bst.save_model("../results/federated_xgb_final.json")
+            return aggregated, metrics
 
 if __name__ == "__main__":
     os.makedirs("../results", exist_ok=True)
@@ -44,7 +55,7 @@ if __name__ == "__main__":
             data_dir=DATA_DIR
         ).to_client()
 
-    strategy = FedXgbBagging(
+    strategy = FedXgbBaggingWithSave(
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=NUM_CLIENTS,
